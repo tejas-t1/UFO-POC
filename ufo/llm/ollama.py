@@ -10,6 +10,7 @@ import time
 from typing import Any, Optional, Dict, List
 
 import requests
+from openai import OpenAI
 from PIL import Image
 
 from .openai import BaseOpenAIService
@@ -28,9 +29,42 @@ class OllamaService(BaseOpenAIService):
         :param config: The configuration.
         :param agent_type: The agent type.
         """
-        base_url = config[agent_type]["API_BASE"]
-        config[agent_type]["API_KEY"] = "ollama"
+        agent_cfg = config[agent_type]
+        base_url = agent_cfg["API_BASE"]
+        agent_cfg["API_KEY"] = "ollama"
         super().__init__(config, agent_type, "openai", f"{base_url}/v1")
+
+        # Optional extras to support remote Ollama deployments fronted by a
+        # reverse proxy (HTTP Basic Auth and/or self-signed TLS certs).
+        username = agent_cfg.get("API_USERNAME")
+        password = agent_cfg.get("API_PASSWORD")
+        verify_ssl = agent_cfg.get("VERIFY_SSL", True)
+
+        if username is not None or verify_ssl is False:
+            try:
+                import httpx
+            except ImportError as exc:  # pragma: no cover - httpx ships with openai
+                raise RuntimeError(
+                    "httpx is required for Ollama basic-auth / custom TLS support"
+                ) from exc
+
+            auth = (
+                httpx.BasicAuth(username, password or "")
+                if username is not None
+                else None
+            )
+            http_client = httpx.Client(
+                verify=bool(verify_ssl),
+                auth=auth,
+                timeout=self.config["TIMEOUT"],
+            )
+            self.client = OpenAI(
+                base_url=f"{base_url}/v1",
+                api_key=agent_cfg["API_KEY"],
+                max_retries=self.max_retry,
+                timeout=self.config["TIMEOUT"],
+                http_client=http_client,
+            )
 
     def chat_completion(
         self,
