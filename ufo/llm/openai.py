@@ -61,8 +61,12 @@ class BaseOpenAIService(BaseService):
 
         self.model = self.config_llm["API_MODEL"]
 
-        # Try to automatically fix some config errors (chat completions only)
-        if not self.use_responses:
+        # Try to automatically fix some config errors (chat completions only).
+        # Skip for Ollama: its OpenAI shim doesn't accept strict json_schema, and
+        # OllamaService installs the auth-aware httpx client *after* super().__init__,
+        # so this probe would always run against the wrong client and emit a
+        # misleading APIConnectionError warning.
+        if not self.use_responses and self.api_type != "ollama":
             while True:
                 try:
                     self.client.beta.chat.completions.parse(
